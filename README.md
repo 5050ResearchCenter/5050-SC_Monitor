@@ -1,6 +1,6 @@
 # 直播间 SC 监听器
 
-基于[blivedm](https://github.com/xfgryujk/blivedm/tree/dev){target="_blank"}实时监控 **B站 5050 直播间** 的醒目留言，提取 BV 号并可一键跳转视频。
+基于[blivedm](https://github.com/xfgryujk/blivedm/tree/dev)实时监控 **B站 5050 直播间** 的醒目留言，提取 BV 号并可一键跳转视频。
 
 ## 功能
 - 实时显示 SC 的用户、金额、内容
