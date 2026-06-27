@@ -1,6 +1,6 @@
 [project]
 name = "5050-sc-monitor"
-version = "0.2.0"
+version = "0.2.1"
 description = "SC Monitor for 5050"
 readme = "README.md"
 requires-python = ">=3.13"

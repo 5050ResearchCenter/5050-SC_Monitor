@@ -100,7 +100,7 @@ class SCMonitorApp:
 
         self._btn_filter_2_yuan = tk.Checkbutton(
             bar,
-            text="过滤 2 元店: 关",
+            text=self.get_filter_2_yuan_text(),
             variable=self._filter_2_yuan_var,
             command=self._filter_2_yuan,
             indicatoron=False,
@@ -158,6 +158,9 @@ class SCMonitorApp:
         st.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=4)
         tk.Label(st, textvariable=self._status_var, anchor=tk.W,
                  font=("微软雅黑", 9), fg=c.color_text, bg=c.color_bg).pack(side=tk.LEFT, fill=tk.X)
+    # ----------------- 工具 -----------------
+    def get_filter_2_yuan_text(self):
+        return "过滤 2 元店: 开" if self._filter_2_yuan_var.get() else "过滤 2 元店: 关"
 
     # ----------------- 监听 -----------------
     def _on_close(self):
@@ -195,7 +198,7 @@ class SCMonitorApp:
         self.config.filter_2_yuan = is_filtering_2_yuan
         self.config.save()
         self._btn_filter_2_yuan.config(
-            text="过滤 2 元店: 开" if is_filtering_2_yuan else "过滤 2 元店: 关"
+            text=self.get_filter_2_yuan_text()
         )
         self._refresh_sc_list()
 
@@ -372,4 +375,3 @@ class SCMonitorApp:
     def _start_blivedm_thread(self):
         threading.Thread(target=lambda: asyncio.run(run_blivedm(self, self.config)),
                          daemon=True).start()
-

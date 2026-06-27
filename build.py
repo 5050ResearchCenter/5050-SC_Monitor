@@ -27,6 +27,7 @@ def main():
     run([
         "--clean",
         "--onefile",
+        "--noupx",
         "--windowed",
         "--name",
         app_name,
