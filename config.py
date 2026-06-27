@@ -1,7 +1,9 @@
 import json
 import os
 import logging
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, fields
+
+from gui import WINDOW_HEIGHT_MIN, WINDOW_WIDTH_MIN
 
 logger = logging.getLogger(__name__)
 
@@ -11,8 +13,11 @@ CONFIG_FILE = "sc_config.json"
 class AppConfig:
     room_id: int = 5050
     sessdata: str = ""
-    window_width: int = 900
-    window_height: int = 500
+    # 配置
+    filter_2_yuan: bool = False
+
+    window_width: int = WINDOW_WIDTH_MIN
+    window_height: int = WINDOW_HEIGHT_MIN
     # 颜色
     color_bg: str = "#F0FFF4"
     color_card: str = "#FAFFFB"
@@ -27,7 +32,10 @@ class AppConfig:
             try:
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                cfg.sessdata = data.get("sessdata", "")
+                valid_keys = {field.name for field in fields(cls)}
+                merged_data = asdict(cfg)
+                merged_data.update({key: value for key, value in data.items() if key in valid_keys})
+                cfg = cls(**merged_data)
                 logger.info("配置文件加载成功")
             except Exception as e:
                 logger.error(f"配置文件解析失败: {e}")
@@ -37,5 +45,5 @@ class AppConfig:
 
     def save(self):
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump({"sessdata": self.sessdata}, f, indent=2)
+            json.dump(asdict(self), f, indent=2, ensure_ascii=False)
         logger.info("配置文件已保存")
