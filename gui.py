@@ -142,6 +142,7 @@ class SCMonitorApp:
         style.configure("Treeview.Heading", background=c.color_bar, foreground=c.color_text,
                         relief="flat", borderwidth=0, font=("微软雅黑", 9, "bold"))
         self.tree.tag_configure("clicked_bv", background="#FFF9C4", foreground=c.color_text)
+        self.tree.tag_configure("special_danmaku", background="#FFF1F6", foreground=c.color_text)
 
         for col, width, text in [
             ("time", 20, "时间"), ("user", 100, "用户"),
@@ -278,7 +279,7 @@ class SCMonitorApp:
 
         bv = self.tree.set(item, "bv")
         user = self.tree.set(item, "user")
-        if bv and bv != "-":
+        if bv and ("bv" in bv.lower()):
             self._mark_row(item)
             webbrowser.open(BV_URL_TEMPLATE.format(bv))
             self.set_status(f"🔗 已跳转: {bv}")
@@ -294,18 +295,22 @@ class SCMonitorApp:
         if item in self._clicked_bv_items:
             self._clicked_bv_items.remove(item)
         self._clicked_bv_items.append(item)
-        self._apply_clicked_bv_highlights()
+        self._apply_highlights()
         bv = self.tree.set(item, "bv")
         return bv if bv and bv != "-" else None
 
     def _unmark_row(self, item):
         if item in self._clicked_bv_items:
             self._clicked_bv_items.remove(item)
-            self._apply_clicked_bv_highlights()
+            self._apply_highlights()
 
-    def _apply_clicked_bv_highlights(self):
+    def _apply_highlights(self):
         for item in self.tree.get_children():
-            self.tree.item(item, tags=())
+            if float(self.tree.set(item, "price")[1::]) < 0.1:
+                self.tree.item(item, tags=("special_danmaku",))
+            else:
+                self.tree.item(item, tags=())
+
         for item in self._clicked_bv_items:
             if self.tree.exists(item):
                 self.tree.item(item, tags=("clicked_bv",))
@@ -365,6 +370,23 @@ class SCMonitorApp:
             "bv": bv,
         })
 
+    def add_danmaku(self, uname, message, timestamp):
+        if not any(special_user in uname for special_user in self.config.special_users):
+            return
+
+        record_id = self._alloc_sc_idx
+        self._alloc_sc_idx += 1
+        self.root.after(0, self._append_sc_record, {
+            "id": record_id,
+            "uname": uname,
+            "price": 0,
+            "price_value": 0,
+            "message": message,
+            "timestamp": timestamp,
+            "bv": "特殊弹幕",
+        })
+        return
+
     def _append_sc_record(self, record):
         self._sc_records.append(record)
         self._write_sc_log(record)
@@ -391,7 +413,9 @@ class SCMonitorApp:
                 price_value = None
             # always show the latest clicked BV item even if it is filtered out
             if latest_item != self._sc_item_id(record) \
-                and is_filtering_2_yuan and price_value is not None and price_value < 30:
+                and is_filtering_2_yuan \
+                and price_value is not None \
+                and 0 < price_value and price_value < 29.9:
                 continue
             visible_scs.append(record)
         return visible_scs
@@ -418,7 +442,7 @@ class SCMonitorApp:
                 values=(t_str, record["uname"], f"¥{record['price']}", display_msg, record["bv"])
             )
 
-        self._apply_clicked_bv_highlights()
+        self._apply_highlights()
         self._restore_selected_item(selected_item)
 
         total_count = len(self._sc_records)

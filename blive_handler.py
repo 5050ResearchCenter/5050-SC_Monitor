@@ -5,12 +5,9 @@ import os
 import random
 import time
 
-try:
-    import aiohttp
-    import blivedm
-except ImportError:
-    aiohttp = None
-    blivedm = None
+import aiohttp
+import blivedm
+from blivedm.models.web import DanmakuMessage
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +51,13 @@ class SCHandler(BaseHandler): # type: ignore
             timestamp=message.start_time,
         )
 
+    def _on_danmaku(self, client, message: DanmakuMessage):
+        self._app.add_danmaku(
+            uname=message.uname,
+            message=message.msg,
+            timestamp=int(time.time()),
+        )
+
 
 async def _run_fake_blivedm(app, config):
     logger.info("DEBUG=on，使用假的直播数据源")
@@ -66,15 +70,23 @@ async def _run_fake_blivedm(app, config):
             price = random.choice(DEBUG_FAKE_PRICES)
             uname = random.choice(DEBUG_FAKE_USERS)
             message = random.choice(DEBUG_FAKE_MESSAGES)
+            is_special = random.random() < 0.5
             timestamp = int(time.time())
 
             app.root.after(0, lambda: app.on_danmaku_heartbeat())
-            app.add_sc(
-                uname=f"{uname}_{index}",
-                price=price,
-                message=message,
-                timestamp=timestamp,
-            )
+            if is_special:
+                app.add_danmaku(
+                    uname=f"{uname}",
+                    message=message,
+                    timestamp=timestamp,
+                )
+            else:
+                app.add_sc(
+                    uname=f"{uname}",
+                    price=price,
+                    message=message,
+                    timestamp=timestamp,
+                )
 
             index += 1
             await asyncio.sleep(2)

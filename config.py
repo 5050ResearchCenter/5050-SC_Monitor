@@ -1,7 +1,7 @@
 import json
 import os
 import logging
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 
 from gui import WINDOW_HEIGHT_MIN, WINDOW_WIDTH_MIN
 
@@ -13,8 +13,12 @@ CONFIG_FILE = "sc_config.json"
 class AppConfig:
     room_id: int = 5050
     sessdata: str = ""
+
     # 配置
     filter_2_yuan: bool = False
+    special_users: list[str] = field(default_factory=lambda: [
+        "クリ", "男搓背", "阿木木"
+    ])
 
     window_width: int = WINDOW_WIDTH_MIN
     window_height: int = WINDOW_HEIGHT_MIN
