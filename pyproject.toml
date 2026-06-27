@@ -11,5 +11,17 @@ dependencies = [
     "pillow>=12.2.0",
 ]
 
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.21.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["main", "gui", "config", "blive_handler", "utils"]
+
 [tool.uv.sources]
 blivedm = { git = "https://github.com/xfgryujk/blivedm.git", rev = "dev" }

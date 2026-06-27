@@ -9,6 +9,7 @@ import sys
 import os
 from PIL import Image, ImageTk
 import logging
+from importlib import metadata as importlib_metadata
 
 from utils import extract_bv, BV_URL_TEMPLATE
 from blive_handler import run_blivedm
@@ -20,6 +21,19 @@ logger = logging.getLogger(__name__)
 
 WINDOW_WIDTH_MIN = 1280
 WINDOW_HEIGHT_MIN = 800
+APP_DISTRIBUTION_NAME = "5050-sc-monitor"
+APP_TITLE_NAME = "5050 SC 监听器"
+
+
+def get_app_version():
+    try:
+        return importlib_metadata.version(APP_DISTRIBUTION_NAME)
+    except importlib_metadata.PackageNotFoundError:
+        if getattr(sys, "frozen", False):
+            logger.warning("未找到包元数据，无法获取应用版本")
+            return "未知版本"
+        return "dev"
+
 
 class SCMonitorApp:
     def __init__(self, root, config):
@@ -53,7 +67,7 @@ class SCMonitorApp:
             logger.warning(f"设置图标失败: {e}")
 
     def _setup_window(self):
-        self.root.title(f"{self.config.room_id} SC 监听器")
+        self.root.title(f"{APP_TITLE_NAME} [{get_app_version()}]")
 
         self.config.window_width = max(self.config.window_width, WINDOW_WIDTH_MIN)
         self.config.window_height = max(self.config.window_height, WINDOW_HEIGHT_MIN)
@@ -358,3 +372,4 @@ class SCMonitorApp:
     def _start_blivedm_thread(self):
         threading.Thread(target=lambda: asyncio.run(run_blivedm(self, self.config)),
                          daemon=True).start()
+
