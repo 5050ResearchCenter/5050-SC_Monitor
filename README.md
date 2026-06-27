@@ -23,8 +23,8 @@ DEBUG 运行： `DEBUG=on python main.py`
 
 ## 打包
 ```bash
-uv --no-cache pip install -e . --no-build-isolation --no-deps
 python build.py
 ```
 
 输出文件名格式：`5050 SC 监听器 [版本号].exe`
+

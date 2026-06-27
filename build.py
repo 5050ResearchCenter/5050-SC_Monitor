@@ -1,28 +1,31 @@
-from importlib.metadata import PackageNotFoundError, version
 import os
-import sys
+from pathlib import Path
+import tomllib
 
-APP_DISTRIBUTION_NAME = "5050-sc-monitor"
 APP_EXE_NAME = "5050 SC 监听器"
+PROJECT_FILE = Path(__file__).with_name("pyproject.toml")
+VERSION_ENV_VAR = "SC_MONITOR_VERSION"
+VERSION_HOOK_FILE = Path(__file__).with_name("_pyinstaller_version_hook.py")
 
 
 def get_app_version():
-    try:
-        return version(APP_DISTRIBUTION_NAME)
-    except PackageNotFoundError:
-        print(
-            f"Package metadata for {APP_DISTRIBUTION_NAME!r} was not found.\n"
-            "Run this first:\n"
-            "  uv --no-cache pip install -e . --no-build-isolation --no-deps",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
+    with PROJECT_FILE.open("rb") as f:
+        data = tomllib.load(f)
+    return data["project"]["version"]
+
+
+def write_version_hook(version):
+    VERSION_HOOK_FILE.write_text(
+        f'import os\nos.environ[{VERSION_ENV_VAR!r}] = {version!r}\n',
+        encoding="utf-8",
+    )
 
 
 def main():
     from PyInstaller.__main__ import run
 
     app_version = get_app_version()
+    write_version_hook(app_version)
     app_name = f"{APP_EXE_NAME} [{app_version}]"
     run([
         "--clean",
@@ -33,8 +36,8 @@ def main():
         app_name,
         "--icon",
         "resources/favicon.ico",
-        "--copy-metadata",
-        APP_DISTRIBUTION_NAME,
+        "--runtime-hook",
+        str(VERSION_HOOK_FILE),
         "--add-data",
         f"resources/favicon.ico{os.pathsep}resources",
         "main.py",

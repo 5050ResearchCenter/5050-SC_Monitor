@@ -246,3 +246,5 @@ Sessionx.vim
 tags
 # Persistent undo
 [._]*.un~
+_pyinstaller_version_hook.py
+

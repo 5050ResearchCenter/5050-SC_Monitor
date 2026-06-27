@@ -9,7 +9,6 @@ import sys
 import os
 from PIL import Image, ImageTk
 import logging
-from importlib import metadata as importlib_metadata
 
 from utils import extract_bv, BV_URL_TEMPLATE
 from blive_handler import run_blivedm
@@ -21,18 +20,12 @@ logger = logging.getLogger(__name__)
 
 WINDOW_WIDTH_MIN = 1280
 WINDOW_HEIGHT_MIN = 800
-APP_DISTRIBUTION_NAME = "5050-sc-monitor"
 APP_TITLE_NAME = "5050 SC 监听器"
+VERSION_ENV_VAR = "SC_MONITOR_VERSION"
 
 
 def get_app_version():
-    try:
-        return importlib_metadata.version(APP_DISTRIBUTION_NAME)
-    except importlib_metadata.PackageNotFoundError:
-        if getattr(sys, "frozen", False):
-            logger.warning("未找到包元数据，无法获取应用版本")
-            return "未知版本"
-        return "dev"
+    return os.environ.get(VERSION_ENV_VAR, "dev")
 
 
 class SCMonitorApp:
@@ -49,6 +42,7 @@ class SCMonitorApp:
         self._sc_records = []
         self._alloc_sc_idx = 1
         self._clicked_bv_items = []
+        self._selected_item = None
         self._status_var = tk.StringVar(value="等待连接...")
 
         self._set_icon()
@@ -134,8 +128,8 @@ class SCMonitorApp:
         self.tree.tag_configure("clicked_bv", background="#FFF9C4", foreground=c.color_text)
 
         for col, width, text in [
-            ("time", 80, "时间"), ("user", 100, "用户"),
-            ("price", 70, "金额(¥)"), ("msg", 400, "SC 内容"), ("bv", 160, "BV号 (点击跳转)")
+            ("time", 20, "时间"), ("user", 100, "用户"),
+            ("price", 70, "金额(¥)"), ("msg", 400, "SC 内容"), ("bv", 160, "BV号 (点击跳转/标记)")
         ]:
             anchor = tk.CENTER if col in ("price", "bv") else tk.W
             self.tree.heading(col, text=text)
@@ -208,6 +202,7 @@ class SCMonitorApp:
         self._sc_records.clear()
         self._alloc_sc_idx = 1
         self._clicked_bv_items = []
+        self._selected_item = None
 
     def _latest_clicked_bv_item(self):
         return self._clicked_bv_items[-1] if self._clicked_bv_items else None
@@ -216,7 +211,7 @@ class SCMonitorApp:
         latest_item = self._latest_clicked_bv_item()
         if latest_item and self.tree.exists(latest_item):
             self.tree.see(latest_item)
-            self._select_latest_bv_item(latest_item)
+            self._select_item(latest_item)
             self.set_status("📍 已定位")
         else:
             self.set_status("⚠️ 暂无记录")
@@ -251,20 +246,40 @@ class SCMonitorApp:
     def _on_click(self, ev):
         if self.tree.identify_region(ev.x, ev.y) != "cell":
             return
-        if self.tree.identify_column(ev.x) != "#5":
-            return
         item = self.tree.identify_row(ev.y)
         if not item:
             return
+
+        self._select_item(item)
+        if self.tree.identify_column(ev.x) != "#5":
+            return
+
         bv = self.tree.set(item, "bv")
+        user = self.tree.set(item, "user")
         if bv and bv != "-":
-            if item in self._clicked_bv_items:
-                self._clicked_bv_items.remove(item)
-            self._clicked_bv_items.append(item)
-            self._apply_clicked_bv_highlights()
-            self._select_latest_bv_item(item)
+            self._mark_row(item)
             webbrowser.open(BV_URL_TEMPLATE.format(bv))
             self.set_status(f"🔗 已跳转: {bv}")
+        else:
+            if item in self._clicked_bv_items:
+                self._unmark_row(item)
+                self.set_status(f"🔗 已取消: {user}")
+            else:
+                self._mark_row(item)
+                self.set_status(f"🔗 已标记: {user}")
+
+    def _mark_row(self, item):
+        if item in self._clicked_bv_items:
+            self._clicked_bv_items.remove(item)
+        self._clicked_bv_items.append(item)
+        self._apply_clicked_bv_highlights()
+        bv = self.tree.set(item, "bv")
+        return bv if bv and bv != "-" else None
+
+    def _unmark_row(self, item):
+        if item in self._clicked_bv_items:
+            self._clicked_bv_items.remove(item)
+            self._apply_clicked_bv_highlights()
 
     def _apply_clicked_bv_highlights(self):
         for item in self.tree.get_children():
@@ -273,14 +288,25 @@ class SCMonitorApp:
             if self.tree.exists(item):
                 self.tree.item(item, tags=("clicked_bv",))
 
-    def _select_latest_bv_item(self, item):
+    def _current_selected_item(self):
+        selection = self.tree.selection()
+        if selection:
+            self._selected_item = selection[0]
+        return self._selected_item
+
+    def _select_item(self, item):
         self.tree.selection_set(item)
         self.tree.focus(item)
+        self._selected_item = item
+
+    def _restore_selected_item(self, item):
+        if item and self.tree.exists(item):
+            self._select_item(item)
 
     def _on_right(self, ev):
         item = self.tree.identify_row(ev.y)
         if item:
-            self.tree.selection_set(item)
+            self._select_item(item)
             self._menu.post(ev.x_root, ev.y_root)
 
     def _copy_msg(self):
@@ -323,7 +349,7 @@ class SCMonitorApp:
 
     def get_visible_scs(self):
         is_filtering_2_yuan = self._filter_2_yuan_var.get()
-        latest_item = self._latest_clicked_bv_item()
+        latest_item = self._selected_item
         visible_scs = []
         for record in self._sc_records:
             price_value = None
@@ -342,6 +368,7 @@ class SCMonitorApp:
         return f"sc_{record['id']}"
 
     def _refresh_sc_list(self):
+        selected_item = self._current_selected_item()
         visible_scs = self.get_visible_scs()
         visible_count = len(visible_scs)
 
@@ -360,9 +387,7 @@ class SCMonitorApp:
             )
 
         self._apply_clicked_bv_highlights()
-        latest_item = self._latest_clicked_bv_item()
-        if latest_item and self.tree.exists(latest_item):
-            self._select_latest_bv_item(latest_item)
+        self._restore_selected_item(selected_item)
 
         total_count = len(self._sc_records)
         self.set_status(f"✅ 已连接 | 共 {total_count} 条 SC | 实际显示 {visible_count} 条")
