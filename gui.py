@@ -3,10 +3,12 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import webbrowser
 import time
+import json
 import threading
 import asyncio
 import sys
 import os
+from pathlib import Path
 from PIL import Image, ImageTk
 import logging
 
@@ -44,11 +46,25 @@ class SCMonitorApp:
         self._clicked_bv_items = []
         self._selected_item = None
         self._status_var = tk.StringVar(value="等待连接...")
+        self._sc_log_file = None
+        self._sc_log_path = self._setup_sc_log()
 
         self._set_icon()
         self._setup_window()
         self._build_ui()
         self._start_blivedm_thread()
+
+    def _setup_sc_log(self):
+        try:
+            log_dir = Path("data")
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_path = log_dir / f"sclog-{time.strftime('%y-%m-%d-%H-%M')}.jsonl"
+            self._sc_log_file = log_path.open("a", encoding="utf-8")
+            logger.info(f"SC 日志文件: {log_path}")
+            return log_path
+        except Exception as e:
+            logger.warning(f"创建 SC 日志文件失败: {e}")
+            return None
 
     def _set_icon(self):
         try:
@@ -158,6 +174,12 @@ class SCMonitorApp:
 
     # ----------------- 监听 -----------------
     def _on_close(self):
+        if self._sc_log_file is not None:
+            try:
+                self._sc_log_file.close()
+            except Exception:
+                pass
+            self._sc_log_file = None
         self.config.save()
         self.root.destroy()
 
@@ -345,7 +367,17 @@ class SCMonitorApp:
 
     def _append_sc_record(self, record):
         self._sc_records.append(record)
+        self._write_sc_log(record)
         self._refresh_sc_list()
+
+    def _write_sc_log(self, record):
+        if self._sc_log_file is None:
+            return
+        try:
+            self._sc_log_file.write(json.dumps(record, ensure_ascii=False) + "\n")
+            self._sc_log_file.flush()
+        except Exception as e:
+            logger.warning(f"写入 SC 日志失败: {e}")
 
     def get_visible_scs(self):
         is_filtering_2_yuan = self._filter_2_yuan_var.get()
