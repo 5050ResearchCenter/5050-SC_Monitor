@@ -1,4 +1,5 @@
 import asyncio
+from enum import IntEnum
 import http.cookies
 import logging
 import os
@@ -7,7 +8,9 @@ import time
 
 import aiohttp
 import blivedm
-from blivedm.models.web import DanmakuMessage
+from blivedm.models.web import DanmakuMessage, SuperChatMessage
+
+from models import UserInfo, UserVipLevel
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +34,8 @@ def _is_debug_fake_source_enabled():
     return os.getenv("DEBUG", "").strip().lower() == "on"
 
 
+
 BaseHandler = blivedm.BaseHandler if blivedm else object
-
-
 class SCHandler(BaseHandler): # type: ignore
     def __init__(self, app):
         super().__init__()
@@ -43,17 +45,30 @@ class SCHandler(BaseHandler): # type: ignore
         self._app.root.after(0, lambda: self._app.on_danmaku_heartbeat())
         pass
 
-    def _on_super_chat(self, client, message):
-        self._app.add_sc(
+    def _on_super_chat(self, client, message: SuperChatMessage):
+        user = UserInfo(
             uname=message.uname,
+            uid=message.uid,
+            vip_level=UserVipLevel(message.guard_level),
+        )
+
+        self._app.add_sc(
+            user=user,
             price=message.price,
             message=message.message,
             timestamp=message.start_time,
         )
 
     def _on_danmaku(self, client, message: DanmakuMessage):
-        self._app.add_danmaku(
+        # logger.info(f"收到弹幕: {message.uname}({message.uid}): {message.msg}")
+        user = UserInfo(
             uname=message.uname,
+            uid=message.uid,
+            vip_level=UserVipLevel(message.privilege_type),
+        )
+
+        self._app.add_danmaku(
+            user=user,
             message=message.msg,
             timestamp=int(time.time()),
         )

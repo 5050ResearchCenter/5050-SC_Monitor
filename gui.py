@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import *
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -14,6 +15,7 @@ import logging
 
 from utils import extract_bv, BV_URL_TEMPLATE
 from blive_handler import run_blivedm
+from models import UserInfo, UserVipLevel
 
 if TYPE_CHECKING:
     from config import AppConfig
@@ -48,6 +50,8 @@ class SCMonitorApp:
         self._status_var = tk.StringVar(value="等待连接...")
         self._sc_log_file = None
         self._sc_log_path = self._setup_sc_log()
+
+        self._user_info: Dict[str, UserInfo] = {}
 
         self._set_icon()
         self._setup_window()
@@ -136,13 +140,17 @@ class SCMonitorApp:
         style = ttk.Style()
         style.theme_use("clam")
         style.configure("Treeview", background=c.color_card, fieldbackground=c.color_card,
-                        foreground="#424242", rowheight=28, borderwidth=0)
+                        foreground="#424242", rowheight=28, borderwidth=0, font=("微软雅黑", 9))
         style.map("Treeview", background=[("selected", "#C8E6C9")],
                   foreground=[("selected", c.color_text)])
         style.configure("Treeview.Heading", background=c.color_bar, foreground=c.color_text,
                         relief="flat", borderwidth=0, font=("微软雅黑", 9, "bold"))
         self.tree.tag_configure("clicked_bv", background="#FFF9C4", foreground=c.color_text)
         self.tree.tag_configure("special_danmaku", background="#FFF1F6", foreground=c.color_text)
+
+        self.tree.tag_configure("vip1", foreground=self.config.color_user_vip1)
+        self.tree.tag_configure("vip2", foreground=self.config.color_user_vip2)
+        self.tree.tag_configure("vip3", foreground=self.config.color_user_vip3)
 
         for col, width, text in [
             ("time", 20, "时间"), ("user", 100, "用户"),
@@ -171,7 +179,7 @@ class SCMonitorApp:
                  font=("微软雅黑", 9), fg=c.color_text, bg=c.color_bg).pack(side=tk.LEFT, fill=tk.X)
     # ----------------- 工具 -----------------
     def get_filter_2_yuan_text(self):
-        return "过滤 2 元店: 开" if self._filter_2_yuan_var.get() else "过滤 2 元店: 关"
+        return "过滤两元店: 开" if self._filter_2_yuan_var.get() else "过滤两元店: 关"
 
     # ----------------- 监听 -----------------
     def _on_close(self):
@@ -243,6 +251,9 @@ class SCMonitorApp:
         w = tk.Toplevel(self.root)
         w.title("修改 Cookie")
         w.geometry("500x220")
+        x = (self.root.winfo_screenwidth() - 500) // 2
+        y = (self.root.winfo_screenheight() - 220) // 2
+        w.geometry(f"+{x}+{y}")
         w.configure(bg=self.config.color_bg)
         w.transient(self.root)
         w.grab_set()
@@ -306,8 +317,26 @@ class SCMonitorApp:
 
     def _apply_highlights(self):
         for item in self.tree.get_children():
+            userinfo = self._user_info.get(self.tree.set(item, "user"))
+            # logger.info("debugging: userinfo: %s", userinfo.uname if userinfo else "None")
             if float(self.tree.set(item, "price")[1::]) < 0.1:
-                self.tree.item(item, tags=("special_danmaku",))
+                if userinfo:
+                    processed = False
+                    if userinfo.vip_level == UserVipLevel.VIP3 and self.config.show_user_vip3:
+                        logger.info("debugging: 高亮总督用户弹幕: %s", userinfo.uname)
+                        self.tree.item(item, tags=("vip3",))
+                        processed = True
+                    elif userinfo.vip_level == UserVipLevel.VIP2 and self.config.show_user_vip2:
+                        logger.info("debugging: 高亮提督用户弹幕: %s", userinfo.uname)
+                        self.tree.item(item, tags=("vip2",))
+                        processed = True
+                    elif userinfo.vip_level == UserVipLevel.VIP1 and self.config.show_user_vip1:
+                        logger.info("debugging: 高亮舰长用户弹幕: %s", userinfo.uname)
+                        self.tree.item(item, tags=("vip1",))
+                        processed = True
+
+                    if not processed:
+                        self.tree.item(item, tags=("special_danmaku",))
             else:
                 self.tree.item(item, tags=())
 
@@ -352,7 +381,12 @@ class SCMonitorApp:
                 self.root.clipboard_append(bv)
                 self.set_status("📋 已复制 BV")
 
-    def add_sc(self, uname, price, message, timestamp):
+    def add_sc(self, user: UserInfo, price, message, timestamp):
+        uname = user.uname
+        uid = user.uid
+        vip_level = user.vip_level
+        self._user_info[uname] = user
+
         try:
             price_value = float(price)
         except (TypeError, ValueError):
@@ -363,6 +397,7 @@ class SCMonitorApp:
         self.root.after(0, self._append_sc_record, {
             "id": record_id,
             "uname": uname,
+            "vip_level": vip_level,
             "price": price,
             "price_value": price_value,
             "message": message,
@@ -370,20 +405,48 @@ class SCMonitorApp:
             "bv": bv,
         })
 
-    def add_danmaku(self, uname, message, timestamp):
-        if not any(special_user in uname for special_user in self.config.special_users):
+    def add_danmaku(self, user: UserInfo, message, timestamp):
+        uname = user.uname
+        uid = user.uid
+        vip_level = user.vip_level
+
+        # if uid == 774288:
+        #     vip_level = UserVipLevel.VIP1
+        #     user.vip_level = vip_level
+        #     logger.info("debugging: 用户弹幕: %s", user)
+
+        process_flag = False
+        # 昵称触发关键词
+        if any(special_user in uname for special_user in self.config.special_users):
+            process_flag = True
+
+        # 用户 UID 在列表
+        if any(str(uid) == str(special_uid) for special_uid in self.config.special_users_uid):
+            process_flag = True
+
+        # 是 VIP 用户
+        if int(vip_level) == UserVipLevel.VIP1 and self.config.show_user_vip1:
+            process_flag = True
+        elif int(vip_level) == UserVipLevel.VIP2 and self.config.show_user_vip2:
+            process_flag = True
+        elif int(vip_level) == UserVipLevel.VIP3 and self.config.show_user_vip3:
+            process_flag = True
+
+        if not process_flag:
             return
 
+        self._user_info[uname] = user
         record_id = self._alloc_sc_idx
         self._alloc_sc_idx += 1
         self.root.after(0, self._append_sc_record, {
             "id": record_id,
             "uname": uname,
+            "vip_level": vip_level,
             "price": 0,
             "price_value": 0,
             "message": message,
             "timestamp": timestamp,
-            "bv": "特殊弹幕",
+            "bv": "弹幕",
         })
         return
 
