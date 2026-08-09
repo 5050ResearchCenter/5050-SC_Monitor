@@ -16,6 +16,7 @@ class AppConfig(BaseModel):
 
     room_id: int = Field(default=5050, alias="直播间ID")
     sessdata: str = Field(default="", alias="SESSDATA")
+    dpsk_api_token: str = Field(default="", alias="DPSK_API_TOKEN")
 
     # 配置
     filter_2_yuan: bool = Field(default=False, alias="过滤两元店")
@@ -37,7 +38,7 @@ class AppConfig(BaseModel):
     show_user_vip2: bool = Field(default=False, alias="显示提督弹幕")
     color_user_vip2: str = Field(default="#E651FF", alias="颜色_提督弹幕")
 
-    show_user_vip3: bool = Field(default=True, alias="显示总督弹幕")
+    show_user_vip3: bool = Field(default=False, alias="显示总督弹幕")
     color_user_vip3: str = Field(default="#D32F2F", alias="颜色_总督弹幕")
 
     color_bg: str = Field(default="#F0FFF4")

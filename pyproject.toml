@@ -1,6 +1,6 @@
 [project]
 name = "5050-sc-monitor"
-version = "0.3.0"
+version = "0.4.1"
 description = "SC Monitor for 5050"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -22,7 +22,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-py-modules = ["main", "gui", "config", "blive_handler", "utils"]
+py-modules = ["main", "gui", "config", "blive_handler", "dpsk_client", "utils"]
 
 [tool.uv.sources]
 blivedm = { git = "https://github.com/xfgryujk/blivedm.git", rev = "dev" }

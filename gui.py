@@ -9,12 +9,15 @@ import threading
 import asyncio
 import sys
 import os
+import queue
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from PIL import Image, ImageTk
 import logging
 
 from utils import extract_bv, BV_URL_TEMPLATE
 from blive_handler import run_blivedm
+from dpsk_client import DPSKClient, DPSK_MAX_CONCURRENCY
 from models import UserInfo, UserVipLevel
 
 if TYPE_CHECKING:
@@ -50,12 +53,31 @@ class SCMonitorApp:
         self._status_var = tk.StringVar(value="等待连接...")
         self._sc_log_file = None
         self._sc_log_path = self._setup_sc_log()
+        self._is_closing = False
+        self._dpsk_result_queue = queue.SimpleQueue()
+        self._dpsk_poll_after_id = None
+        self._tip_window = None
+        self._tip_after_id = None
+        dpsk_api_token = self.config.dpsk_api_token.strip()
+        self._dpsk_client = DPSKClient(dpsk_api_token) if dpsk_api_token else None
+        self._dpsk_executor = (
+            ThreadPoolExecutor(
+                max_workers=DPSK_MAX_CONCURRENCY,
+                thread_name_prefix="dpsk",
+            )
+            if self._dpsk_client
+            else None
+        )
 
         self._user_info: Dict[str, UserInfo] = {}
 
         self._set_icon()
         self._setup_window()
         self._build_ui()
+        if self._dpsk_client:
+            self._dpsk_poll_after_id = self.root.after(100, self._poll_dpsk_results)
+        else:
+            logger.warning("未配置 DPSK_API_TOKEN，将跳过 Steam ID 分析")
         self._start_blivedm_thread()
 
     def _setup_sc_log(self):
@@ -154,7 +176,8 @@ class SCMonitorApp:
 
         for col, width, text in [
             ("time", 20, "时间"), ("user", 100, "用户"),
-            ("price", 70, "金额(¥)"), ("msg", 400, "SC 内容"), ("bv", 160, "BV号 (点击跳转/标记)")
+            ("price", 70, "金额(¥)"), ("msg", 400, "SC 内容"),
+            ("bv", 230, "BV号 / Steam ID (点击跳转/复制)")
         ]:
             anchor = tk.CENTER if col in ("price", "bv") else tk.W
             self.tree.heading(col, text=text)
@@ -171,6 +194,7 @@ class SCMonitorApp:
         self._menu = tk.Menu(self.root, tearoff=0, bg=c.color_card, fg=c.color_text)
         self._menu.add_command(label="📋 复制 SC 内容", command=self._copy_msg)
         self._menu.add_command(label="🔗 复制 BV 号", command=self._copy_bv)
+        self._menu.add_command(label="🎮 复制 Steam ID", command=self._copy_steam_id)
 
         # 状态栏
         st = tk.Frame(self.root, bg=c.color_bg)
@@ -183,6 +207,16 @@ class SCMonitorApp:
 
     # ----------------- 监听 -----------------
     def _on_close(self):
+        self._is_closing = True
+        self._hide_tip()
+        if self._dpsk_poll_after_id is not None:
+            try:
+                self.root.after_cancel(self._dpsk_poll_after_id)
+            except Exception:
+                pass
+            self._dpsk_poll_after_id = None
+        if self._dpsk_executor is not None:
+            self._dpsk_executor.shutdown(wait=False, cancel_futures=True)
         if self._sc_log_file is not None:
             try:
                 self._sc_log_file.close()
@@ -288,18 +322,29 @@ class SCMonitorApp:
         if self.tree.identify_column(ev.x) != "#5":
             return
 
-        bv = self.tree.set(item, "bv")
+        record = self._record_for_item(item)
+        steam_id = record.get("steam_id") if record else None
+        if steam_id:
+            self._mark_row(item)
+            self._copy_to_clipboard(steam_id)
+            self.set_status(f"📋 已复制 Steam ID: {steam_id}")
+            return
+
+        bv = record.get("bv", "-") if record else self.tree.set(item, "bv")
         user = self.tree.set(item, "user")
         if bv and ("bv" in bv.lower()):
             self._mark_row(item)
             webbrowser.open(BV_URL_TEMPLATE.format(bv))
+            self._show_tip("已跳转")
             self.set_status(f"🔗 已跳转: {bv}")
         else:
             if item in self._clicked_bv_items:
                 self._unmark_row(item)
+                self._show_tip("已取消标记")
                 self.set_status(f"🔗 已取消: {user}")
             else:
                 self._mark_row(item)
+                self._show_tip("已标记")
                 self.set_status(f"🔗 已标记: {user}")
 
     def _mark_row(self, item):
@@ -307,7 +352,8 @@ class SCMonitorApp:
             self._clicked_bv_items.remove(item)
         self._clicked_bv_items.append(item)
         self._apply_highlights()
-        bv = self.tree.set(item, "bv")
+        record = self._record_for_item(item)
+        bv = record.get("bv", "-") if record else self.tree.set(item, "bv")
         return bv if bv and bv != "-" else None
 
     def _unmark_row(self, item):
@@ -368,18 +414,79 @@ class SCMonitorApp:
     def _copy_msg(self):
         sel = self.tree.selection()
         if sel:
-            self.root.clipboard_clear()
-            self.root.clipboard_append(self.tree.set(sel[0], "msg"))
+            self._copy_to_clipboard(self.tree.set(sel[0], "msg"))
             self.set_status("📋 已复制")
+
+    def _copy_to_clipboard(self, value):
+        self.root.clipboard_clear()
+        self.root.clipboard_append(value)
+        self._show_tip("已复制")
+
+    def _show_tip(self, text, duration=1200):
+        self._hide_tip()
+
+        tip = tk.Toplevel(self.root)
+        tip.overrideredirect(True)
+        tip.attributes("-topmost", True)
+        tip.configure(bg=self.config.color_main)
+        tk.Label(
+            tip,
+            text=text,
+            bg=self.config.color_main,
+            fg="white",
+            font=("微软雅黑", 9, "bold"),
+            padx=10,
+            pady=5,
+        ).pack()
+        tip.update_idletasks()
+
+        pointer_x = self.root.winfo_pointerx()
+        pointer_y = self.root.winfo_pointery()
+        tip_width = tip.winfo_reqwidth()
+        tip_height = tip.winfo_reqheight()
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        x = min(pointer_x + 14, screen_width - tip_width - 8)
+        y = min(pointer_y + 18, screen_height - tip_height - 8)
+        tip.geometry(f"+{max(8, x)}+{max(8, y)}")
+
+        self._tip_window = tip
+        self._tip_after_id = self.root.after(duration, self._hide_tip)
+
+    def _hide_tip(self):
+        if self._tip_after_id is not None:
+            try:
+                self.root.after_cancel(self._tip_after_id)
+            except Exception:
+                pass
+            self._tip_after_id = None
+        if self._tip_window is not None:
+            try:
+                self._tip_window.destroy()
+            except Exception:
+                pass
+            self._tip_window = None
 
     def _copy_bv(self):
         sel = self.tree.selection()
         if sel:
-            bv = self.tree.set(sel[0], "bv")
+            record = self._record_for_item(sel[0])
+            bv = record.get("bv", "-") if record else self.tree.set(sel[0], "bv")
             if bv and bv != "-":
-                self.root.clipboard_clear()
-                self.root.clipboard_append(bv)
+                self._copy_to_clipboard(bv)
                 self.set_status("📋 已复制 BV")
+
+    def _copy_steam_id(self):
+        sel = self.tree.selection()
+        if not sel:
+            return
+        record = self._record_for_item(sel[0])
+        steam_id = record.get("steam_id") if record else None
+        if steam_id:
+            self._copy_to_clipboard(steam_id)
+            self.set_status(f"📋 已复制 Steam ID: {steam_id}")
+        else:
+            self.set_status("⚠️ 该条记录没有 Steam ID")
 
     def add_sc(self, user: UserInfo, price, message, timestamp):
         uname = user.uname
@@ -392,6 +499,11 @@ class SCMonitorApp:
         except (TypeError, ValueError):
             price_value = None
         bv = extract_bv(message) or "-"
+        steam_analysis_status = "disabled"
+        if bv != "-":
+            steam_analysis_status = "skipped_bv"
+        elif self._dpsk_client:
+            steam_analysis_status = "pending"
         record_id = self._alloc_sc_idx
         self._alloc_sc_idx += 1
         self.root.after(0, self._append_sc_record, {
@@ -403,6 +515,8 @@ class SCMonitorApp:
             "message": message,
             "timestamp": timestamp,
             "bv": bv,
+            "steam_id": None,
+            "steam_analysis_status": steam_analysis_status,
         })
 
     def add_danmaku(self, user: UserInfo, message, timestamp):
@@ -454,6 +568,57 @@ class SCMonitorApp:
         self._sc_records.append(record)
         self._write_sc_log(record)
         self._refresh_sc_list()
+        if record.get("steam_analysis_status") == "pending":
+            self._start_steam_id_analysis(record)
+
+    def _start_steam_id_analysis(self, record):
+        if self._is_closing or self._dpsk_client is None or self._dpsk_executor is None:
+            return
+        future = self._dpsk_executor.submit(
+            self._dpsk_client.extract_steam_id,
+            record["message"],
+        )
+        future.add_done_callback(
+            lambda completed, record_id=record["id"]: self._queue_dpsk_result(record_id, completed)
+        )
+
+    def _queue_dpsk_result(self, record_id: int, future: Future):
+        try:
+            steam_id = future.result()
+            error = None
+        except Exception as exc:
+            steam_id = None
+            error = str(exc)
+        self._dpsk_result_queue.put((record_id, steam_id, error))
+
+    def _poll_dpsk_results(self):
+        self._dpsk_poll_after_id = None
+        if self._is_closing:
+            return
+
+        updated = False
+        latest_error = None
+        while True:
+            try:
+                record_id, steam_id, error = self._dpsk_result_queue.get_nowait()
+            except queue.Empty:
+                break
+
+            record = next((item for item in self._sc_records if item["id"] == record_id), None)
+            if record is None:
+                continue
+            record["steam_id"] = steam_id
+            record["steam_analysis_status"] = "error" if error else "done"
+            updated = True
+            if error:
+                latest_error = error
+                logger.warning("SC %s 的 Steam ID 分析失败: %s", record_id, error)
+
+        if updated:
+            self._refresh_sc_list()
+        if latest_error:
+            self.set_status(f"⚠️ Steam ID 分析失败: {latest_error}")
+        self._dpsk_poll_after_id = self.root.after(100, self._poll_dpsk_results)
 
     def _write_sc_log(self, record):
         if self._sc_log_file is None:
@@ -486,6 +651,25 @@ class SCMonitorApp:
     def _sc_item_id(self, record):
         return f"sc_{record['id']}"
 
+    def _record_for_item(self, item):
+        return next(
+            (record for record in self._sc_records if self._sc_item_id(record) == item),
+            None,
+        )
+
+    @staticmethod
+    def _bv_column_value(record):
+        bv = record.get("bv") or "-"
+        steam_id = record.get("steam_id")
+        status = record.get("steam_analysis_status")
+        if steam_id:
+            return f"{bv} | {steam_id}" if bv != "-" else steam_id
+        if status == "pending":
+            return f"{bv} | 分析中…" if bv != "-" else "分析中…"
+        if status == "error":
+            return f"{bv} | 分析失败" if bv != "-" else "分析失败"
+        return bv
+
     def _refresh_sc_list(self):
         selected_item = self._current_selected_item()
         visible_scs = self.get_visible_scs()
@@ -502,7 +686,13 @@ class SCMonitorApp:
                 "",
                 tk.END,
                 iid=self._sc_item_id(record),
-                values=(t_str, record["uname"], f"¥{record['price']}", display_msg, record["bv"])
+                values=(
+                    t_str,
+                    record["uname"],
+                    f"¥{record['price']}",
+                    display_msg,
+                    self._bv_column_value(record),
+                )
             )
 
         self._apply_highlights()
