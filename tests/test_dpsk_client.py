@@ -11,6 +11,7 @@ from dpsk_client import (
     DPSKClient,
     DPSK_MAX_CONCURRENCY,
     DPSK_MODEL,
+    DPSK_MODELS_URL,
     DPSK_PROMPT,
     normalize_steam_id,
 )
@@ -32,6 +33,11 @@ class _FakeResponse:
         return self._body
 
 
+class _FakeJSONResponse(_FakeResponse):
+    def __init__(self, payload):
+        self._body = json.dumps(payload).encode("utf-8")
+
+
 class NormalizeSteamIdTests(unittest.TestCase):
     def test_none_markers_and_friend_codes_are_ignored(self):
         for content in (None, "", "无", "无。", " 123456789 ", "123456。", "123456\n这是好友码", "未找到"):
@@ -44,6 +50,38 @@ class NormalizeSteamIdTests(unittest.TestCase):
 
 
 class DPSKClientTests(unittest.TestCase):
+    @patch("dpsk_client.urlopen")
+    def test_token_validation_uses_models_endpoint(self, mock_urlopen):
+        mock_urlopen.return_value = _FakeJSONResponse({
+            "object": "list",
+            "data": [{"id": DPSK_MODEL, "object": "model", "owned_by": "deepseek"}],
+        })
+
+        is_valid = DPSKClient("test-token").validate_token()
+
+        self.assertTrue(is_valid)
+        request = mock_urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, DPSK_MODELS_URL)
+        self.assertEqual(request.method, "GET")
+        self.assertEqual(request.get_header("Authorization"), "Bearer test-token")
+
+    @patch("dpsk_client.urlopen")
+    def test_token_validation_returns_false_for_http_401(self, mock_urlopen):
+        mock_urlopen.side_effect = HTTPError(
+            url=DPSK_MODELS_URL,
+            code=401,
+            msg="Authentication Fails",
+            hdrs={},
+            fp=io.BytesIO(),
+        )
+
+        self.assertFalse(DPSKClient("invalid-token").validate_token())
+
+    @patch("dpsk_client.urlopen")
+    def test_token_validation_does_not_call_api_when_token_is_blank(self, mock_urlopen):
+        self.assertFalse(DPSKClient("  ").validate_token())
+        mock_urlopen.assert_not_called()
+
     @patch("dpsk_client.urlopen")
     def test_flash_model_request_and_result(self, mock_urlopen):
         mock_urlopen.return_value = _FakeResponse("player_one")

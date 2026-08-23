@@ -10,6 +10,7 @@ from urllib.request import Request, urlopen
 logger = logging.getLogger(__name__)
 
 DPSK_API_URL = "https://api.deepseek.com/chat/completions"
+DPSK_MODELS_URL = "https://api.deepseek.com/models"
 DPSK_MODEL = "deepseek-v4-flash"
 DPSK_MAX_CONCURRENCY = 16
 DPSK_MAX_429_RETRIES = 3
@@ -83,6 +84,39 @@ class DPSKClient:
         self._timeout = timeout
         self._semaphore = threading.BoundedSemaphore(max_concurrency)
         self._max_429_retries = max_429_retries
+
+    def validate_token(self) -> bool:
+        """Validate credentials without consuming completion tokens.
+
+        False means the token is absent or DeepSeek explicitly returned HTTP 401.
+        Connectivity and service failures remain errors so callers do not mislabel
+        a temporarily unreachable API as an invalid credential.
+        """
+        if not self._api_token:
+            return False
+
+        request = Request(
+            DPSK_MODELS_URL,
+            headers={"Authorization": f"Bearer {self._api_token}"},
+            method="GET",
+        )
+        try:
+            with urlopen(request, timeout=self._timeout) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            code = exc.code
+            exc.close()
+            if code == 401:
+                return False
+            raise DPSKError(f"DeepSeek API 返回 HTTP {code}") from exc
+        except URLError as exc:
+            raise DPSKError(f"无法连接 DeepSeek API: {exc.reason}") from exc
+        except (OSError, TimeoutError, UnicodeError, json.JSONDecodeError) as exc:
+            raise DPSKError(f"DeepSeek API 请求失败: {exc}") from exc
+
+        if not isinstance(data, dict) or not isinstance(data.get("data"), list):
+            raise DPSKError("DeepSeek API 模型列表响应格式无效")
+        return True
 
     def extract_steam_id(self, text: str) -> str | None:
         if not self._api_token:

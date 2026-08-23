@@ -28,6 +28,7 @@ class AppConfig(BaseModel):
         default_factory=lambda: [774288],
         alias="特殊用户UID",
     )
+    blacklist: list[str] = Field(default_factory=list, alias="黑名单关键词")
     window_width: int = Field(default=WINDOW_WIDTH_MIN, alias="窗口宽度")
     window_height: int = Field(default=WINDOW_HEIGHT_MIN, alias="窗口高度")
 
