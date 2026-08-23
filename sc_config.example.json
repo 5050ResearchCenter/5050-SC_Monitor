@@ -1,3 +1,8 @@
 {
-  "sessdata": "把你的SESSDATA填在这里"
+  "SESSDATA": "把你的SESSDATA填在这里",
+  "DPSK_API_TOKEN": "把你的 DeepSeek API Token 填在这里",
+  "黑名单关键词": [
+    "啾比",
+    "鸣潮"
+  ]
 }
