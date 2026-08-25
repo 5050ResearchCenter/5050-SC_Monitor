@@ -80,6 +80,7 @@ class DebugSamplesTests(unittest.TestCase):
         self.assertEqual(
             set(DEBUG_FAKE_VIP_LEVELS),
             {
+                UserVipLevel.Normal,
                 UserVipLevel.VIP1,
                 UserVipLevel.VIP2,
                 UserVipLevel.VIP3,

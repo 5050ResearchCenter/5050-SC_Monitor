@@ -25,7 +25,7 @@
 3. 创建配置文件：复制 `sc_config.example.json` 为 `sc_config.json`，填入你的 SESSDATA【可不填】和 `DPSK_API_TOKEN`
 4. 运行：`python main.py`
 
-PowerShell 离线调试运行：`$env:KDEBUG="on"; python main.py`。也可以在源码目录（打包后为 EXE 同目录）创建一个名为 `KDEBUG` 的空文件来开启离线调试。程序会按顺序循环内置的真实 SC 样例，并在舰长、提督、总督之间随机设置发送者身份；填写 `DPSK_API_TOKEN` 后，每条样例都会经过 DeepSeek 分析。
+PowerShell 离线调试运行：`$env:KDEBUG="on"; python main.py`。也可以在源码目录（打包后为 EXE 同目录）创建一个名为 `KDEBUG` 的空文件来开启离线调试。程序会按顺序循环内置的真实 SC 样例，并在普通用户、舰长、提督、总督之间随机设置发送者身份；填写 `DPSK_API_TOKEN` 后，每条样例都会经过 DeepSeek 分析。
 
 ## 配置
 - 房间号、窗口大小等可在 `config.py` 中修改
