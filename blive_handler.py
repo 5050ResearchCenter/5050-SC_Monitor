@@ -3,7 +3,9 @@ from enum import IntEnum
 import http.cookies
 import logging
 import os
+from pathlib import Path
 import random
+import sys
 import time
 
 import aiohttp
@@ -15,6 +17,16 @@ from models import UserInfo, UserVipLevel
 logger = logging.getLogger(__name__)
 
 DEBUG_FAKE_PRICES = (2, 30, 50, 100)
+DEBUG_MARKER_FILENAME = "KDEBUG"
+DEBUG_FAKE_VIP_LEVELS = (
+    UserVipLevel.Normal,
+    UserVipLevel.Normal,
+    UserVipLevel.Normal,
+    UserVipLevel.Normal,
+    UserVipLevel.VIP1,
+    UserVipLevel.VIP2,
+    UserVipLevel.VIP3,
+)
 DEBUG_FAKE_USERS = (
     "调试_阿木木",
     "调试_男搓背",
@@ -34,8 +46,17 @@ DEBUG_FALLBACK_MESSAGES = (
 )
 
 
+def _debug_marker_path():
+    if getattr(sys, "frozen", False):
+        app_directory = Path(sys.executable).resolve().parent
+    else:
+        app_directory = Path(__file__).resolve().parent
+    return app_directory / DEBUG_MARKER_FILENAME
+
+
 def _is_debug_fake_source_enabled():
-    return os.getenv("DEBUG", "").strip().lower() == "on"
+    debug_env_enabled = os.getenv("KDEBUG", "").strip().lower() == "on"
+    return debug_env_enabled or _debug_marker_path().is_file()
 
 
 
@@ -53,7 +74,8 @@ class SCHandler(BaseHandler): # type: ignore
         user = UserInfo(
             uname=message.uname,
             uid=message.uid,
-            vip_level=UserVipLevel(message.guard_level),
+            # SC 的 guard_level 是发送者在当前直播间的舰队等级。
+            vip_level=UserVipLevel.from_guard_level(message.guard_level),
         )
 
         self._app.add_sc(
@@ -68,7 +90,7 @@ class SCHandler(BaseHandler): # type: ignore
         user = UserInfo(
             uname=message.uname,
             uid=message.uid,
-            vip_level=UserVipLevel(message.privilege_type),
+            vip_level=UserVipLevel.from_guard_level(message.privilege_type),
         )
 
         self._app.add_danmaku(
@@ -94,8 +116,8 @@ async def _run_fake_blivedm(app, config):
                 logger.info("已修复 %s 条旧 DEBUG 投稿记录的用户 UID", repaired_count)
         except Exception as exc:
             logger.warning("修复旧 DEBUG 投稿记录失败: %s", exc)
-    logger.info("DEBUG=on，使用 %s 条 SC 测试样例", len(debug_messages))
-    app.root.after(0, lambda: app.set_status("DEBUG 假数据源将在 1 秒后开始..."))
+    logger.info("离线调试已开启，使用 %s 条 SC 测试样例", len(debug_messages))
+    app.root.after(0, lambda: app.set_status("离线 DEBUG 假数据源将在 1 秒后开始..."))
 
     try:
         await asyncio.sleep(1)
@@ -108,7 +130,7 @@ async def _run_fake_blivedm(app, config):
             user = UserInfo(
                 uname=uname,
                 uid=debug_user_uids[uname],
-                vip_level=UserVipLevel.Normal,
+                vip_level=random.choice(DEBUG_FAKE_VIP_LEVELS),
             )
 
             app.root.after(0, lambda: app.on_danmaku_heartbeat())

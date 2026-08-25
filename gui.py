@@ -59,6 +59,12 @@ class SCMonitorApp:
 
         self._topmost = False
         self._filter_2_yuan_var = tk.BooleanVar(value=self.config.filter_2_yuan)
+        self._show_user_vip_vars = {
+            UserVipLevel.VIP1: tk.BooleanVar(value=self.config.show_user_vip1),
+            UserVipLevel.VIP2: tk.BooleanVar(value=self.config.show_user_vip2),
+            UserVipLevel.VIP3: tk.BooleanVar(value=self.config.show_user_vip3),
+        }
+        self._btn_show_user_vip = {}
         self._sc_records = []
         self._alloc_sc_idx = 1
         self._clicked_bv_items = []
@@ -99,8 +105,6 @@ class SCMonitorApp:
             if self._dpsk_client
             else None
         )
-
-        self._user_info: Dict[str, UserInfo] = {}
 
         self._set_icon()
         self._setup_window()
@@ -183,6 +187,23 @@ class SCMonitorApp:
         )
         self._btn_filter_2_yuan.pack(side=tk.LEFT, padx=3)
 
+        for vip_level in (
+            UserVipLevel.VIP1,
+            UserVipLevel.VIP2,
+            UserVipLevel.VIP3,
+        ):
+            button = tk.Checkbutton(
+                bar,
+                text=self.get_vip_danmaku_text(vip_level),
+                variable=self._show_user_vip_vars[vip_level],
+                command=lambda level=vip_level: self._toggle_vip_danmaku(level),
+                indicatoron=False,
+                selectcolor=c.color_main,
+                **btn_style,
+            )
+            button.pack(side=tk.LEFT, padx=3)
+            self._btn_show_user_vip[vip_level] = button
+
         tk.Button(bar, text="🧹 清空", command=self._clear_list, **btn_style).pack(side=tk.LEFT, padx=3)
         tk.Button(bar, text="📍 回到跳转", command=self._goto_last,
                   bg=c.color_main, fg="white", relief=tk.FLAT, bd=0, padx=10, pady=4,
@@ -233,6 +254,8 @@ class SCMonitorApp:
 
         self._menu = tk.Menu(self.root, tearoff=0, bg=c.color_card, fg=c.color_text)
         self._menu.add_command(label="📋 复制 SC 内容", command=self._copy_msg)
+        self._menu.add_command(label="🆔 复制发送者 UID", command=self._copy_sender_uid)
+        self._menu.add_command(label="👤 复制发送者昵称", command=self._copy_sender_uname)
         self._menu.add_command(label="🔗 复制 BV 号", command=self._copy_bv)
         self._menu.add_command(label="🎮 复制 Steam ID", command=self._copy_steam_id)
 
@@ -244,6 +267,26 @@ class SCMonitorApp:
     # ----------------- 工具 -----------------
     def get_filter_2_yuan_text(self):
         return "过滤两元店: 开" if self._filter_2_yuan_var.get() else "过滤两元店: 关"
+
+    @staticmethod
+    def _vip_config_attr(vip_level):
+        return {
+            UserVipLevel.VIP1: "show_user_vip1",
+            UserVipLevel.VIP2: "show_user_vip2",
+            UserVipLevel.VIP3: "show_user_vip3",
+        }[vip_level]
+
+    @staticmethod
+    def _vip_name(vip_level):
+        return {
+            UserVipLevel.VIP1: "舰长",
+            UserVipLevel.VIP2: "提督",
+            UserVipLevel.VIP3: "总督",
+        }[vip_level]
+
+    def get_vip_danmaku_text(self, vip_level):
+        enabled = self._show_user_vip_vars[vip_level].get()
+        return f"{self._vip_name(vip_level)}弹幕: {'开' if enabled else '关'}"
 
     # ----------------- 监听 -----------------
     def _on_close(self):
@@ -308,6 +351,14 @@ class SCMonitorApp:
             text=self.get_filter_2_yuan_text()
         )
         self._refresh_sc_list()
+
+    def _toggle_vip_danmaku(self, vip_level):
+        enabled = self._show_user_vip_vars[vip_level].get()
+        setattr(self.config, self._vip_config_attr(vip_level), enabled)
+        self.config.save()
+        self._btn_show_user_vip[vip_level].config(
+            text=self.get_vip_danmaku_text(vip_level)
+        )
 
     def _clear_list(self):
         for i in self.tree.get_children():
@@ -411,26 +462,18 @@ class SCMonitorApp:
 
     def _apply_highlights(self):
         for item in self.tree.get_children():
-            userinfo = self._user_info.get(self.tree.set(item, "user"))
-            # logger.info("debugging: userinfo: %s", userinfo.uname if userinfo else "None")
-            if float(self.tree.set(item, "price")[1::]) < 0.1:
-                if userinfo:
-                    processed = False
-                    if userinfo.vip_level == UserVipLevel.VIP3 and self.config.show_user_vip3:
-                        logger.info("debugging: 高亮总督用户弹幕: %s", userinfo.uname)
-                        self.tree.item(item, tags=("vip3",))
-                        processed = True
-                    elif userinfo.vip_level == UserVipLevel.VIP2 and self.config.show_user_vip2:
-                        logger.info("debugging: 高亮提督用户弹幕: %s", userinfo.uname)
-                        self.tree.item(item, tags=("vip2",))
-                        processed = True
-                    elif userinfo.vip_level == UserVipLevel.VIP1 and self.config.show_user_vip1:
-                        logger.info("debugging: 高亮舰长用户弹幕: %s", userinfo.uname)
-                        self.tree.item(item, tags=("vip1",))
-                        processed = True
-
-                    if not processed:
-                        self.tree.item(item, tags=("special_danmaku",))
+            record = self._record_for_item(item)
+            vip_level = UserVipLevel.from_guard_level(
+                record.get("vip_level") if record else UserVipLevel.Normal
+            )
+            if vip_level == UserVipLevel.VIP3:
+                self.tree.item(item, tags=("vip3",))
+            elif vip_level == UserVipLevel.VIP2:
+                self.tree.item(item, tags=("vip2",))
+            elif vip_level == UserVipLevel.VIP1:
+                self.tree.item(item, tags=("vip1",))
+            elif record and float(record.get("price_value") or 0) < 0.1:
+                self.tree.item(item, tags=("special_danmaku",))
             else:
                 self.tree.item(item, tags=())
 
@@ -464,6 +507,30 @@ class SCMonitorApp:
         if sel:
             self._copy_to_clipboard(self.tree.set(sel[0], "msg"))
             self.set_status("📋 已复制")
+
+    def _copy_sender_uid(self):
+        sel = self.tree.selection()
+        if not sel:
+            return
+        record = self._record_for_item(sel[0])
+        uid = record.get("uid") if record else None
+        if uid is None:
+            self.set_status("⚠️ 该条记录没有发送者 UID")
+            return
+        self._copy_to_clipboard(str(uid))
+        self.set_status(f"📋 已复制发送者 UID: {uid}")
+
+    def _copy_sender_uname(self):
+        sel = self.tree.selection()
+        if not sel:
+            return
+        record = self._record_for_item(sel[0])
+        uname = record.get("uname") if record else self.tree.set(sel[0], "user")
+        if not uname:
+            self.set_status("⚠️ 该条记录没有发送者昵称")
+            return
+        self._copy_to_clipboard(str(uname))
+        self.set_status(f"📋 已复制发送者昵称: {uname}")
 
     def _copy_to_clipboard(self, value):
         self.root.clipboard_clear()
@@ -538,30 +605,63 @@ class SCMonitorApp:
         )
 
     def _on_tree_motion(self, event):
-        if (
-            self.tree.identify_region(event.x, event.y) != "cell"
-            or self.tree.identify_column(event.x) != "#5"
-        ):
+        if self.tree.identify_region(event.x, event.y) != "cell":
+            self._hide_hover_tip()
+            return
+
+        column = self.tree.identify_column(event.x)
+        if column not in ("#2", "#5"):
             self._hide_hover_tip()
             return
 
         item = self.tree.identify_row(event.y)
         record = self._record_for_item(item) if item else None
-        if not record or record.get("bv") in (None, "-", "弹幕"):
+        if not record or (
+            column == "#5" and record.get("bv") in (None, "-", "弹幕")
+        ):
             self._hide_hover_tip()
             return
 
-        if self._hover_item != item and self._sc_store is not None:
+        sc_store = getattr(self, "_sc_store", None)
+        if (
+            self._hover_item != item
+            and sc_store is not None
+            and record.get("uid") is not None
+        ):
             try:
-                stats = self._sc_store.get_user_stats(record["uid"])
+                stats = sc_store.get_user_stats(record["uid"])
                 self._update_user_stats(record["uid"], stats)
             except Exception as exc:
                 logger.warning("读取投稿人统计失败: %s", exc)
 
-        content = self._format_bv_tooltip(record)
+        content = (
+            self._format_user_tooltip(record)
+            if column == "#2"
+            else self._format_bv_tooltip(record)
+        )
         if self._hover_item == item and self._hover_content == content:
             return
         self._show_hover_tip(item, content, event.x_root, event.y_root)
+
+    @staticmethod
+    def _format_user_tooltip(record):
+        vip_level = UserVipLevel.from_guard_level(record.get("vip_level"))
+        vip_name = {
+            UserVipLevel.VIP1: "舰长",
+            UserVipLevel.VIP2: "提督",
+            UserVipLevel.VIP3: "总督",
+        }.get(vip_level)
+        guard_status = f"是（{vip_name}）" if vip_name else "否"
+        count = int(record.get("user_sc_count") or 0)
+        total = float(record.get("user_sc_total") or 0)
+        amount = f"{total:.2f}".rstrip("0").rstrip(".")
+        return "\n".join((
+            f"昵称：{record.get('uname', '-')}",
+            f"UID：{record.get('uid', '-')}",
+            f"当前大航海：{guard_status}",
+            f"累计 SC 次数：{count} 次",
+            f"累计 SC 金额：¥{amount or '0'}",
+        ))
 
     @staticmethod
     def _format_bv_tooltip(record):
@@ -659,7 +759,6 @@ class SCMonitorApp:
         uname = user.uname
         uid = user.uid
         vip_level = user.vip_level
-        self._user_info[uname] = user
 
         try:
             price_value = float(price)
@@ -743,11 +842,11 @@ class SCMonitorApp:
         if not process_flag:
             return
 
-        self._user_info[uname] = user
         record_id = self._alloc_sc_idx
         self._alloc_sc_idx += 1
         self.root.after(0, self._append_sc_record, {
             "id": record_id,
+            "uid": uid,
             "uname": uname,
             "vip_level": vip_level,
             "price": 0,

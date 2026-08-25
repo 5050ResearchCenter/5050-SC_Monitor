@@ -92,6 +92,32 @@ class SteamAnalysisDispatchTests(unittest.TestCase):
         app.root.clipboard_append.assert_called_once_with("player_one")
         app._show_tip.assert_called_once_with("已复制")
 
+    def test_copying_sender_uid_from_context_menu(self):
+        app = SCMonitorApp.__new__(SCMonitorApp)
+        app.tree = Mock()
+        app.tree.selection.return_value = ("sc_1",)
+        app._sc_records = [{"id": 1, "uid": 42, "uname": "测试用户"}]
+        app._copy_to_clipboard = Mock()
+        app.set_status = Mock()
+
+        app._copy_sender_uid()
+
+        app._copy_to_clipboard.assert_called_once_with("42")
+        app.set_status.assert_called_once_with("📋 已复制发送者 UID: 42")
+
+    def test_copying_sender_nickname_from_context_menu(self):
+        app = SCMonitorApp.__new__(SCMonitorApp)
+        app.tree = Mock()
+        app.tree.selection.return_value = ("sc_1",)
+        app._sc_records = [{"id": 1, "uid": 42, "uname": "测试用户"}]
+        app._copy_to_clipboard = Mock()
+        app.set_status = Mock()
+
+        app._copy_sender_uname()
+
+        app._copy_to_clipboard.assert_called_once_with("测试用户")
+        app.set_status.assert_called_once_with("📋 已复制发送者昵称: 测试用户")
+
     def test_new_sc_updates_all_visible_rows_for_the_same_user(self):
         app = SCMonitorApp.__new__(SCMonitorApp)
         app._sc_records = [{

@@ -1,6 +1,12 @@
 {
   "SESSDATA": "把你的SESSDATA填在这里",
   "DPSK_API_TOKEN": "把你的 DeepSeek API Token 填在这里",
+  "显示舰长弹幕": false,
+  "颜色_舰长弹幕": "#B8860B",
+  "显示提督弹幕": false,
+  "颜色_提督弹幕": "#E651FF",
+  "显示总督弹幕": false,
+  "颜色_总督弹幕": "#D32F2F",
   "黑名单关键词": [
     "啾比",
     "鸣潮"

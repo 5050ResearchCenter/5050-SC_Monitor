@@ -5,6 +5,7 @@ from unittest.mock import Mock
 
 from bilibili_client import VideoMetadata
 from gui import SCMonitorApp
+from models import UserVipLevel
 from sc_store import UserSCStats
 from utils import match_blacklist
 
@@ -150,6 +151,60 @@ class BlacklistTests(unittest.TestCase):
         self.assertIn("累计发送：4 次", call[1])
         self.assertIn("累计金额：¥110", call[1])
         app._sc_store.get_user_stats.assert_called_once_with(42)
+
+    def test_nickname_hover_text_includes_guard_and_sc_stats(self):
+        content = SCMonitorApp._format_user_tooltip({
+            "uid": 42,
+            "uname": "舰长用户",
+            "vip_level": UserVipLevel.VIP1,
+            "user_sc_count": 4,
+            "user_sc_total": 110,
+        })
+
+        self.assertIn("当前大航海：是（舰长）", content)
+        self.assertIn("累计 SC 次数：4 次", content)
+        self.assertIn("累计 SC 金额：¥110", content)
+
+    def test_normal_user_hover_text_reports_no_guard(self):
+        content = SCMonitorApp._format_user_tooltip({
+            "uid": 7,
+            "uname": "普通用户",
+            "vip_level": UserVipLevel.Normal,
+        })
+
+        self.assertIn("当前大航海：否", content)
+
+    def test_hovering_nickname_queries_stats_by_uid(self):
+        app = SCMonitorApp.__new__(SCMonitorApp)
+        app.tree = Mock()
+        app.tree.identify_region.return_value = "cell"
+        app.tree.identify_column.return_value = "#2"
+        app.tree.identify_row.return_value = "sc_1"
+        app._sc_records = [{
+            "id": 1,
+            "uid": 42,
+            "uname": "提督用户",
+            "vip_level": UserVipLevel.VIP2,
+            "price_value": 0,
+            "bv": "弹幕",
+        }]
+        app._sc_store = Mock()
+        app._sc_store.get_user_stats.return_value = UserSCStats(
+            count=5,
+            total_amount=160,
+        )
+        app._hover_item = None
+        app._hover_content = None
+        app._show_hover_tip = Mock()
+        event = Mock(x=5, y=6, x_root=100, y_root=200)
+
+        app._on_tree_motion(event)
+
+        app._sc_store.get_user_stats.assert_called_once_with(42)
+        content = app._show_hover_tip.call_args.args[1]
+        self.assertIn("当前大航海：是（提督）", content)
+        self.assertIn("累计 SC 次数：5 次", content)
+        self.assertIn("累计 SC 金额：¥160", content)
 
 
 if __name__ == "__main__":

@@ -21,7 +21,7 @@ class AppConfig(BaseModel):
     # 配置
     filter_2_yuan: bool = Field(default=False, alias="过滤两元店")
     special_users: list[str] = Field(
-        default_factory=lambda: ["クリ", "男搓背", "阿木木"],
+        default_factory=lambda: [],
         alias="特殊用户名关键词",
     )
     special_users_uid: list[int] = Field(
