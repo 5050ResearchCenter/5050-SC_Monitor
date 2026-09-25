@@ -9,6 +9,7 @@
 - 自动提取消息中的 BV 号（点击即可跳转）
 - 自动查询 BV 对应的视频标题和标签
 - 使用 SQLite 持久化投稿人的昵称、投稿内容和金额，并在 BV 上悬浮显示累计次数和金额
+- 可从主界面开启本地 WebUI，自动在浏览器查看按日期汇总、金额分布、用户排行和分页历史记录
 - 鼠标悬浮昵称可查看当前大航海身份、累计 SC 次数和累计金额
 - 可按配置中的标题/标签黑名单屏蔽投稿；命中后该条 SC 不再显示
 - 使用 DeepSeek V4 Flash 思考模式从 SC 文本提取 Steam ID，并在 BV 列点击复制
@@ -23,7 +24,12 @@
 2. 获取 SESSDATA：
    - 在浏览器登录B站 → F12 → 应用 → Cookies → 找到 `SESSDATA` 复制
 3. 创建配置文件：复制 `sc_config.example.json` 为 `sc_config.json`，填入你的 SESSDATA【可不填】和 `DPSK_API_TOKEN`
-4. 运行：`python main.py`
+4. 首次使用 WebUI 时构建静态前端：
+   ```bash
+   pnpm --dir webui install --store-dir .pnpm-store
+   pnpm --dir webui generate
+   ```
+5. 运行：`python main.py`，点击顶部的 `WebUI: 关` 开关即可自动打开浏览器
 
 PowerShell 离线调试运行：`$env:KDEBUG="on"; python main.py`。也可以在源码目录（打包后为 EXE 同目录）创建一个名为 `KDEBUG` 的空文件来开启离线调试。程序会按顺序循环内置的真实 SC 样例，并在普通用户、舰长、提督、总督之间随机设置发送者身份；填写 `DPSK_API_TOKEN` 后，每条样例都会经过 DeepSeek 分析。
 
@@ -43,5 +49,7 @@ PowerShell 离线调试运行：`$env:KDEBUG="on"; python main.py`。也可以�
 python build.py
 ```
 
-输出文件名格式：`5050 SC 监听器 [版本号].exe`
+打包环境需要 Node.js 和 pnpm。`build.py` 会先生成 Nuxt 静态文件，再将其嵌入单文件 EXE；发布和运行 EXE 不需要 Node.js。输出文件名格式：`5050 SC 监听器 [版本号].exe`。
+
+WebUI 前端开发可运行 `pnpm --dir webui dev`，类型检查可运行 `pnpm --dir webui typecheck`。WebUI 只监听本机 `127.0.0.1:5050`，关闭开关或主程序时服务会自动停止。
 

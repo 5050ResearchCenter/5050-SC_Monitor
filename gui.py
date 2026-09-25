@@ -31,6 +31,7 @@ from monitor_utils import (
     position_popup_window,
 )
 from sc_store import SCStore, UserSCStats
+from webui_server import WebUIServer
 
 if TYPE_CHECKING:
     from config import AppConfig
@@ -58,6 +59,9 @@ class SCMonitorApp:
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self._topmost = False
+        self._webui_var = tk.BooleanVar(value=False)
+        self._webui_server = None
+        self._webui_starting = False
         self._filter_2_yuan_var = tk.BooleanVar(value=self.config.filter_2_yuan)
         self._show_user_vip_vars = {
             UserVipLevel.VIP1: tk.BooleanVar(value=self.config.show_user_vip1),
@@ -176,6 +180,18 @@ class SCMonitorApp:
         self._btn_top = tk.Button(bar, text="📌 置顶", command=self._toggle_top, **btn_style)
         self._btn_top.pack(side=tk.LEFT, padx=3)
 
+        self._btn_webui = tk.Checkbutton(
+            bar,
+            text="🌐 WebUI: 关",
+            variable=self._webui_var,
+            command=self._toggle_webui,
+            indicatoron=False,
+            selectcolor=c.color_main,
+            width=14,
+            **btn_style,
+        )
+        self._btn_webui.pack(side=tk.LEFT, padx=3)
+
         self._btn_filter_2_yuan = tk.Checkbutton(
             bar,
             text=self.get_filter_2_yuan_text(),
@@ -291,6 +307,9 @@ class SCMonitorApp:
     # ----------------- 监听 -----------------
     def _on_close(self):
         self._is_closing = True
+        if self._webui_server is not None:
+            self._webui_server.stop()
+            self._webui_server = None
         self._hide_tip()
         self._hide_hover_tip()
         if self._dpsk_poll_after_id is not None:
@@ -342,6 +361,71 @@ class SCMonitorApp:
         self._topmost = not self._topmost
         self.root.attributes("-topmost", self._topmost)
         self._btn_top.config(text="📌 已置顶" if self._topmost else "📌 置顶")
+
+    def _toggle_webui(self):
+        if self._webui_starting:
+            self._webui_var.set(True)
+            return
+
+        if self._webui_var.get():
+            if self._webui_server is not None:
+                return
+            if self._sc_store is None:
+                self._webui_var.set(False)
+                messagebox.showerror(
+                    "WebUI 启动失败",
+                    "SC 数据库不可用，无法启动 WebUI。",
+                    parent=self.root,
+                )
+                return
+            self._webui_starting = True
+            self._btn_webui.config(text="🌐 WebUI: 开")
+            threading.Thread(
+                target=self._start_webui_worker,
+                name="webui-launcher",
+                daemon=True,
+            ).start()
+            return
+
+        server = self._webui_server
+        self._webui_server = None
+        if server is not None:
+            server.stop()
+        self._btn_webui.config(text="🌐 WebUI: 关")
+
+    def _start_webui_worker(self):
+        server = WebUIServer(self._sc_store)
+        try:
+            url = server.start()
+            error = None
+        except Exception as exc:
+            url = None
+            error = exc
+        if self._is_closing:
+            server.stop()
+            return
+        try:
+            self.root.after(0, self._finish_webui_start, server, url, error)
+        except tk.TclError:
+            server.stop()
+
+    def _finish_webui_start(self, server, url, error):
+        self._webui_starting = False
+        if error is not None:
+            self._webui_var.set(False)
+            self._btn_webui.config(text="🌐 WebUI: 关")
+            logger.error("启动 WebUI 失败: %s", error)
+            messagebox.showerror("WebUI 启动失败", str(error), parent=self.root)
+            return
+
+        self._webui_server = server
+        self._webui_var.set(True)
+        self._btn_webui.config(text="🌐 WebUI: 开")
+        try:
+            webbrowser.open(url)
+        except Exception as exc:
+            logger.warning("自动打开 WebUI 浏览器失败: %s", exc)
+        self.set_status(f"🌐 WebUI 已启动: {url}")
 
     def _filter_2_yuan(self):
         is_filtering_2_yuan = self._filter_2_yuan_var.get()

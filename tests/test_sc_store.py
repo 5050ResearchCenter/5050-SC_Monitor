@@ -104,6 +104,137 @@ class SCStoreTests(unittest.TestCase):
             self.assertEqual(store.get_user_stats(-2).count, 2)
             self.assertEqual(store.get_user_stats(-2).total_amount, 80)
 
+    def test_dashboard_summary_groups_amounts_and_ranks_users(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = SCStore(Path(directory) / "sc.sqlite3")
+            for uid, nickname, amount, timestamp in (
+                (1, "甲旧昵称", 30, 100),
+                (1, "甲新昵称", 50, 110),
+                (2, "乙", 100, 120),
+                (3, "范围外", 100, 300),
+            ):
+                store.record_sc(
+                    user_uid=uid,
+                    nickname=nickname,
+                    content="测试",
+                    amount=amount,
+                    sent_at=timestamp,
+                    bv=None,
+                )
+
+            summary = store.get_daily_summary(100, 200)
+
+            self.assertEqual(summary["totalCount"], 3)
+            self.assertEqual(summary["totalAmount"], 180)
+            self.assertEqual(
+                [(item["amount"], item["count"]) for item in summary["amountDistribution"]],
+                [(30, 1), (50, 1), (100, 1)],
+            )
+            self.assertEqual(summary["countRanking"][0]["userUid"], 1)
+            self.assertEqual(summary["countRanking"][0]["nickname"], "甲新昵称")
+            self.assertEqual(summary["amountRanking"][0]["userUid"], 2)
+
+    def test_user_search_uses_aliases_and_page_filter_uses_uid(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = SCStore(Path(directory) / "sc.sqlite3")
+            for nickname, timestamp in (("旧名字", 100), ("新名字", 200)):
+                store.record_sc(
+                    user_uid=42,
+                    nickname=nickname,
+                    content=nickname,
+                    amount=30,
+                    sent_at=timestamp,
+                    bv=None,
+                )
+            store.record_sc(
+                user_uid=7,
+                nickname="其他人",
+                content="其他",
+                amount=50,
+                sent_at=300,
+                bv=None,
+            )
+
+            matches = store.search_users("旧名")
+            page = store.get_super_chats_page(page=1, page_size=20, user_uid=42)
+
+            self.assertEqual(len(matches), 1)
+            self.assertEqual(matches[0]["userUid"], 42)
+            self.assertEqual(matches[0]["nickname"], "新名字")
+            self.assertEqual(matches[0]["aliases"], ["新名字", "旧名字"])
+            self.assertEqual(
+                [(item["amount"], item["count"]) for item in matches[0]["amountDistribution"]],
+                [(30, 2)],
+            )
+            self.assertEqual(page["total"], 2)
+            self.assertEqual([item["nickname"] for item in page["items"]], ["新名字", "旧名字"])
+
+    def test_exact_nickname_match_is_first_for_direct_filtering(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = SCStore(Path(directory) / "sc.sqlite3")
+            for uid, nickname, timestamp in (
+                (1, "目标用户", 100),
+                (2, "目标用户的朋友", 200),
+            ):
+                store.record_sc(
+                    user_uid=uid,
+                    nickname=nickname,
+                    content="测试",
+                    amount=30,
+                    sent_at=timestamp,
+                    bv=None,
+                )
+
+            matches = store.search_users("目标用户")
+
+            self.assertEqual(matches[0]["userUid"], 1)
+
+    def test_blacklisted_rows_are_hidden_by_default_but_counted_in_user_stats(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = SCStore(Path(directory) / "sc.sqlite3")
+            store.record_sc(
+                user_uid=42,
+                nickname="投稿人",
+                content="正常记录",
+                amount=30,
+                sent_at=100,
+                bv=None,
+            )
+            blocked = store.record_sc(
+                user_uid=42,
+                nickname="投稿人",
+                content="屏蔽记录",
+                amount=50,
+                sent_at=200,
+                bv="BV1NoNN6MEse",
+            )
+            store.update_video_metadata(
+                blocked.id,
+                title="屏蔽视频",
+                tags=("屏蔽",),
+                blacklisted=True,
+                blacklist_matches=("屏蔽",),
+            )
+
+            default_page = store.get_super_chats_page(page=1, page_size=20, user_uid=42)
+            complete_page = store.get_super_chats_page(
+                page=1,
+                page_size=20,
+                user_uid=42,
+                include_blacklisted=True,
+            )
+            user = store.search_users("42")[0]
+
+            self.assertEqual(default_page["total"], 1)
+            self.assertEqual(default_page["items"][0]["content"], "正常记录")
+            self.assertEqual(complete_page["total"], 2)
+            self.assertEqual(user["count"], 2)
+            self.assertEqual(user["blacklistedCount"], 1)
+            self.assertEqual(
+                [(item["amount"], item["count"]) for item in user["amountDistribution"]],
+                [(30, 1), (50, 1)],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

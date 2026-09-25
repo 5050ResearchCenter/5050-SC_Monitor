@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from pathlib import PurePosixPath
 import shutil
+import subprocess
 import sys
 import tempfile
 import tomllib
@@ -11,6 +12,9 @@ APP_EXE_NAME = "5050 SC 监听器"
 PROJECT_FILE = Path(__file__).with_name("pyproject.toml")
 VERSION_ENV_VAR = "SC_MONITOR_VERSION"
 VERSION_HOOK_FILE = Path(__file__).with_name("_pyinstaller_version_hook.py")
+WEBUI_DIRECTORY = Path(__file__).with_name("webui")
+WEBUI_OUTPUT_DIRECTORY = WEBUI_DIRECTORY / ".output" / "public"
+WEBUI_PNPM_STORE = WEBUI_DIRECTORY / ".pnpm-store"
 
 
 def get_app_version():
@@ -68,11 +72,29 @@ def prepare_tcl_tk_data(output_directory, tcl_root=None):
     ]
 
 
+def build_webui():
+    """Generate the static Nuxt app that is embedded into the executable."""
+    pnpm = shutil.which("pnpm")
+    if pnpm is None:
+        raise RuntimeError("构建 WebUI 需要 Node.js 和 pnpm，但当前未找到 pnpm")
+    if not (WEBUI_DIRECTORY / "node_modules").is_dir():
+        subprocess.run(
+            [pnpm, "install", "--frozen-lockfile", "--store-dir", str(WEBUI_PNPM_STORE)],
+            cwd=WEBUI_DIRECTORY,
+            check=True,
+        )
+    subprocess.run([pnpm, "generate"], cwd=WEBUI_DIRECTORY, check=True)
+    if not (WEBUI_OUTPUT_DIRECTORY / "index.html").is_file():
+        raise RuntimeError(f"WebUI 静态构建未生成 index.html: {WEBUI_OUTPUT_DIRECTORY}")
+    return WEBUI_OUTPUT_DIRECTORY
+
+
 def main():
     from PyInstaller.__main__ import run
 
     app_version = get_app_version()
     write_version_hook(app_version)
+    webui_output = build_webui()
     app_name = f"{APP_EXE_NAME} [{app_version}]"
     with tempfile.TemporaryDirectory(prefix="sc-monitor-tk-") as temp_directory:
         tcl_tk_data = prepare_tcl_tk_data(temp_directory)
@@ -89,6 +111,8 @@ def main():
             str(VERSION_HOOK_FILE),
             "--add-data",
             f"resources/favicon.ico{os.pathsep}resources",
+            "--add-data",
+            f"{webui_output}{os.pathsep}webui",
         ]
         for source, destination in tcl_tk_data:
             args.extend(("--add-data", f"{source}{os.pathsep}{destination}"))

@@ -1,0 +1,13 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+:root {
+  --ui-radius: 0.75rem;
+}
+
+body {
+  min-width: 320px;
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--ui-primary) 9%, transparent), transparent 28rem),
+    var(--ui-bg);
+}

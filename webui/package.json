@@ -1,0 +1,21 @@
+{
+  "name": "sc-monitor-webui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "typecheck": "nuxt typecheck"
+  },
+  "dependencies": {
+    "@iconify-json/lucide": "^1.2.68",
+    "@nuxt/ui": "^4.3.0",
+    "nuxt": "^4.5.2",
+    "vue": "^3.5.21"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "vue-tsc": "^3.0.7"
+  },
+  "packageManager": "pnpm@12.4.1"
+}
